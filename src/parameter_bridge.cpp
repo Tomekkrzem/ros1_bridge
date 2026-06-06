@@ -242,7 +242,8 @@ int main(int argc, char * argv[])
   std::list<ros1_bridge::BridgeHandles> all_handles;
   std::list<ros1_bridge::ServiceBridge1to2> service_bridges_1_to_2;
   std::list<ros1_bridge::ServiceBridge2to1> service_bridges_2_to_1;
-
+  std::list<std::unique_ptr<ros1_bridge::ActionFactoryInterface>> action_bridges;
+  
   // bridge all topics listed in a ROS 1 parameter
   // the topics parameter needs to be an array
   // and each item needs to be a dictionary with the following keys;
@@ -256,6 +257,7 @@ int main(int argc, char * argv[])
   // type: the type of the service to bridge (e.g. 'pkgname/srv/SrvName')
   const char * services_1_to_2_parameter_name = "services_1_to_2";
   const char * services_2_to_1_parameter_name = "services_2_to_1";
+  const char * actions_1_to_2_parameter_name = "action_1_to_2";
   const char * service_execution_timeout_parameter_name =
     "ros1_bridge/parameter_bridge/service_execution_timeout";
   if (argc > 1) {
@@ -438,6 +440,52 @@ int main(int argc, char * argv[])
       stderr,
       "The parameter '%s' either doesn't exist or isn't an array\n",
       services_2_to_1_parameter_name);
+  }
+
+    // ROS 1 Actions bridged to ROS 2
+  XmlRpc::XmlRpcValue actions_1_to_2;
+  if (
+    ros1_node.getParam(actions_1_to_2_parameter_name, actions_1_to_2) &&
+    actions_1_to_2.getType() == XmlRpc::XmlRpcValue::TypeArray)
+  {
+    for (size_t i = 0; i < static_cast<size_t>(actions_1_to_2.size()); ++i) {
+      std::string action_name = static_cast<std::string>(actions_1_to_2[i]["action"]);
+      std::string type_name = static_cast<std::string>(actions_1_to_2[i]["type"]);
+
+      const size_t index = type_name.find("/");
+      if (index == std::string::npos) {
+        fprintf(
+          stderr,
+          "the action '%s' has a type '%s' without a slash.\n",
+          action_name.c_str(), type_name.c_str());
+        continue;
+      }
+
+      auto factory = ros1_bridge::get_action_factory(
+        "ros1", type_name.substr(0, index), type_name.substr(index + 1));
+      if (factory) {
+        try {
+          factory->create_server_client(ros1_node, ros2_node, action_name);
+          action_bridges.push_back(std::move(factory));
+          printf("Created 2 to 1 bridge for action %s\n", action_name.c_str());
+        } catch (std::runtime_error & e) {
+          fprintf(
+            stderr,
+            "failed to create bridge for action '%s' with type '%s': %s\n",
+            action_name.c_str(), type_name.c_str(), e.what());
+        }
+      } else {
+        fprintf(
+          stderr,
+          "failed to create bridge for action '%s': no factory for type '%s'\n",
+          action_name.c_str(), type_name.c_str());
+      }
+    }
+  } else {
+    fprintf(
+      stderr,
+      "The parameter '%s' either doesn't exist or isn't an array\n",
+      actions_1_to_2_parameter_name);
   }
 
   // ROS 1 asynchronous spinner

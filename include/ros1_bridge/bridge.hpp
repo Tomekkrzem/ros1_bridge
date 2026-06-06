@@ -27,6 +27,8 @@
 
 #include "ros1_bridge/factory_interface.hpp"
 
+#include "ros1_bridge/action_factory.hpp"
+
 namespace ros1_bridge
 {
 
